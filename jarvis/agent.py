@@ -1,9 +1,11 @@
 from __future__ import annotations
 import json
 import re
+import os
 from typing import TypedDict, Annotated, List, Optional
 from langgraph.graph import StateGraph, END
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 import jarvis.memory as mem
 from jarvis.tools import TOOL_REGISTRY, list_tools
@@ -11,6 +13,34 @@ from jarvis.config import CFG
 from jarvis.logger import get_logger
 
 log = get_logger(__name__)
+
+
+def _get_llm():
+    provider = CFG["model"].get("provider", "ollama")
+    if provider == "openrouter":
+        cfg = CFG["model"]["openrouter"]
+        api_key = cfg.get("api_key") or os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            log.warning("OpenRouter API key not set, falling back to Ollama")
+            provider = "ollama"
+        else:
+            return ChatOpenAI(
+                model=cfg.get("model", "anthropic/claude-3.5-sonnet"),
+                base_url=cfg.get("base_url", "https://openrouter.ai/api/v1"),
+                api_key=api_key,
+                temperature=CFG["model"].get("temperature", 0.1),
+                max_tokens=CFG["model"].get("max_tokens", 2048),
+            )
+
+    if provider == "ollama":
+        return ChatOllama(
+            model=CFG["model"]["primary"],
+            base_url=CFG["model"].get("base_url", "http://localhost:11434"),
+            temperature=CFG["model"].get("temperature", 0.1),
+            format="json"
+        )
+
+    raise ValueError(f"Unknown model provider: {provider}")
 
 SYSTEM_PROMPT_TEMPLATE = """You are Jarvis, an offline-first personal AI operator. You execute real system tasks.
 
@@ -95,12 +125,7 @@ def _extract_json(text: str) -> dict:
 
 
 def plan_node(state: AgentState) -> AgentState:
-    llm = ChatOllama(
-        model=CFG["model"]["primary"],
-        base_url=CFG["model"]["base_url"],
-        temperature=CFG["model"]["temperature"],
-        format="json"
-    )
+    llm = _get_llm()
     system = build_system_prompt(state["user_input"])
     context = state.get("tool_results", [])
     context_str = ""

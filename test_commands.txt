@@ -1,0 +1,5 @@
+hello
+what files are in the current directory?
+create a test file called hello.txt with content "Hello World"
+read the hello.txt file
+exit
