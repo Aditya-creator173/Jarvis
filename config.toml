@@ -1,0 +1,37 @@
+[model]
+provider = "ollama"
+base_url = "http://localhost:11434"
+primary = "qwen2.5-coder:7b"
+fallback = "qwen2.5-coder:3b"
+temperature = 0.1
+max_tokens = 2048
+context_window = 8192
+
+[voice]
+enabled = true
+stt_model = "base.en"
+stt_device = "cpu"
+stt_compute_type = "int8"
+tts_voice = "af_heart"
+tts_speed = 1.0
+silence_threshold_seconds = 1.5
+audio_sample_rate = 16000
+
+[memory]
+db_path = "~/.jarvis/jarvis.db"
+max_episodic_days = 90
+max_semantic_entries = 10000
+embedding_model = "all-MiniLM-L6-v2"
+top_k_recall = 5
+
+[execution]
+workspace = "~/jarvis_workspace"
+dry_run_by_default = false
+require_confirm_destructive = true
+command_allowlist = ["ls", "pwd", "echo", "cat", "find", "grep", "python", "pip", "uv", "git", "mkdir", "touch", "cp"]
+max_retry_attempts = 3
+
+[logging]
+level = "INFO"
+log_file = "~/.jarvis/jarvis.log"
+json_structured = true
