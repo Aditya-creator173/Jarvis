@@ -124,6 +124,28 @@ def _extract_json(text: str) -> dict:
     return {"action": "respond", "message": text}
 
 
+def _call_gemini_fallback(prompt: str, system: str) -> str:
+    import os
+    from google import genai
+    from google.genai import types
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return '{"action": "respond", "message": "Gemini API key not set."}'
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=0.1,
+            max_output_tokens=1024,
+        )
+    )
+    return response.text
+
+
 def plan_node(state: AgentState) -> AgentState:
     llm = _get_llm()
     system = build_system_prompt(state["user_input"])
@@ -137,8 +159,19 @@ def plan_node(state: AgentState) -> AgentState:
         SystemMessage(content=system),
         HumanMessage(content=state["user_input"] + context_str)
     ]
-    response = llm.invoke(messages)
-    parsed = _extract_json(response.content)
+    try:
+        response = llm.invoke(messages)
+        parsed = _extract_json(response.content)
+        # If parsed is just a plain respond with no real content, treat as failure
+        if not parsed or parsed.get("action") == "respond" and not parsed.get("message"):
+            raise ValueError("Empty response from local model")
+    except Exception as e:
+        log.warning(f"Local model failed ({e}), falling back to Gemini...")
+        raw = _call_gemini_fallback(
+            prompt=state["user_input"],
+            system=build_system_prompt(state["user_input"])
+        )
+        parsed = _extract_json(raw)
     log.info(f"Plan: {parsed}")
     state["_plan"] = parsed
     return state
