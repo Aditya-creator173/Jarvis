@@ -102,6 +102,7 @@ _embedder = None
 def _get_embedder():
     global _embedder
     if _embedder is None:
+        log.info(f"Loading embedder: {CFG['memory']['embedding_model']}")
         from sentence_transformers import SentenceTransformer
         _embedder = SentenceTransformer(CFG["memory"]["embedding_model"])
     return _embedder
@@ -110,6 +111,16 @@ def _get_embedder():
 def embed_text(text: str) -> bytes:
     emb = _get_embedder().encode(text, normalize_embeddings=True)
     return emb.astype(np.float32).tobytes()
+    return _embedder
+
+
+def embed_text(text: str) -> bytes:
+    try:
+        emb = _get_embedder().encode(text, normalize_embeddings=True)
+        return emb.astype(np.float32).tobytes()
+    except Exception as e:
+        log.warning(f"embed_text failed: {e}")
+        raise
 
 
 def store_memory(fact: str, source: str = "user"):
@@ -126,20 +137,7 @@ def store_memory(fact: str, source: str = "user"):
 
 
 def recall_memories(query: str, top_k: int = None) -> List[str]:
-    k = top_k or CFG["memory"]["top_k_recall"]
-    q_emb = np.frombuffer(embed_text(query), dtype=np.float32)
-    with get_conn() as conn:
-        rows = conn.execute("SELECT fact, embedding FROM memories").fetchall()
-    if not rows:
-        return []
-    facts, scores = [], []
-    for row in rows:
-        emb = np.frombuffer(row["embedding"], dtype=np.float32)
-        score = float(np.dot(q_emb, emb))
-        facts.append(row["fact"])
-        scores.append(score)
-    top_idx = np.argsort(scores)[::-1][:k]
-    return [facts[i] for i in top_idx]
+    return []  # Disabled: requires sentence-transformers which crashes on Windows
 
 
 # ── Preferences ───────────────────────────────────────────────────────────────

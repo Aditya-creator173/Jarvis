@@ -173,12 +173,20 @@ def plan_node(state: AgentState) -> AgentState:
         )
         parsed = _extract_json(raw)
     log.info(f"Plan: {parsed}")
-    state["_plan"] = parsed
+    # Store plan in tool_results as a special entry (langgraph may copy state)
+    state["_plan"] = dict(parsed)  # Make a copy
+    state["tool_results"] = state.get("tool_results", []) + [{"_plan": dict(parsed)}]
     return state
 
 
 def execute_node(state: AgentState) -> AgentState:
     plan = state.get("_plan", {})
+    if not plan:
+        tool_results = state.get("tool_results", [])
+        for tr in reversed(tool_results):
+            if "_plan" in tr:
+                plan = tr["_plan"]
+                break
     action = plan.get("action", "respond")
 
     if action == "respond":
@@ -190,9 +198,21 @@ def execute_node(state: AgentState) -> AgentState:
         state["final_response"] = None
         return state
 
-    if action == "tool":
-        tool_name = plan.get("tool")
-        params = plan.get("params", {})
+    # Handle action="tool" or when action IS the tool name (e.g., {"action": "fs", "params": {...}})
+    tool_name = plan.get("tool") or (action if action != "tool" and action != "respond" and action != "confirm" else None)
+    if tool_name:
+        params = plan.get("params", {}).copy()
+        # Auto-add action if tool expects it but it's not in params
+        if "action" not in params and tool_name == "fs":
+            # Infer action from params keys
+            if "path" in params and "content" in params:
+                params["action"] = "write"
+            elif "path" in params:
+                params["action"] = "read"
+            elif "command" in params:
+                # Shell command - use shell tool instead
+                tool_name = "shell"
+                params = {"command": params.pop("command")}
         tool = TOOL_REGISTRY.get(tool_name)
         if not tool:
             state["final_response"] = f"Unknown tool: {tool_name}"
@@ -209,11 +229,9 @@ def execute_node(state: AgentState) -> AgentState:
         }]
 
         if not result.success:
-            if state.get("retry_count", 0) < CFG["execution"]["max_retry_attempts"]:
-                state["retry_count"] = state.get("retry_count", 0) + 1
-                state["_plan"] = None
-                return state
-            state["final_response"] = f"Tool '{tool_name}' failed after retries: {result.error}"
+            # If tool failed, respond with error instead of retrying blindly
+            state["final_response"] = f"Tool '{tool_name}' failed: {result.error}"
+            return state
 
     return state
 
@@ -222,8 +240,12 @@ def reflect_node(state: AgentState) -> AgentState:
     if state.get("final_response") or state.get("awaiting_confirm"):
         return state
     tool_results = state.get("tool_results", [])
+    # If tool succeeded, we're done unless more work is needed
     if tool_results and tool_results[-1].get("success"):
-        state["final_response"] = None  # Will trigger another plan
+        # Check if the result indicates more work needed
+        last_output = tool_results[-1].get("output", "")
+        if not any(x in last_output.lower() for x in ["error", "failed", "permission denied"]):
+            state["final_response"] = "Done."
     return state
 
 
