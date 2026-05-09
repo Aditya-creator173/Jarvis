@@ -116,3 +116,4 @@ uv run python -m jarvis --mode voice
 | **Shell tool executes destructive command** | Med | Critical | Allowlist, `confirm=True` gate, `--safe-mode` flag. |
 | **Kokoro TTS not available cross-platform** | Med | Med | `speak()` falls back silently to `print()` — voice failure never crashes agent. |
 | **LangGraph API breaks between minor versions** | Low | Med | Version pinned in `pyproject.toml`. |
+
